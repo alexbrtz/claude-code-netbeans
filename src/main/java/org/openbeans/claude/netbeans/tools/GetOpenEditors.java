@@ -3,6 +3,7 @@ package org.openbeans.claude.netbeans.tools;
 import java.io.File;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import javax.swing.SwingUtilities;
 import org.netbeans.api.project.FileOwnerQuery;
 import org.netbeans.api.project.Project;
 import org.netbeans.api.project.ProjectUtils;
@@ -47,32 +48,39 @@ public class GetOpenEditors implements Tool<GetOpenEditorsParams, GetOpenEditors
         List<Editor> editors = new ArrayList<>();
 
         try {
-            // Use TopComponent registry to get open editor nodes
-            Node[] nodes = TopComponent.getRegistry().getCurrentNodes();
-            for (Node node : nodes) {
-                EditorCookie editorCookie = node.getLookup().lookup(EditorCookie.class);
-                if (editorCookie != null) {
-                    DataObject dataObject = node.getLookup().lookup(DataObject.class);
-                    if (dataObject != null) {
-                        FileObject fileObject = dataObject.getPrimaryFile();
-                        if (fileObject != null) {
-                            Editor editor = new Editor();
-                            editor.setName(fileObject.getName());
-                            editor.setPath(fileObject.getPath());
-                            editor.setExtension(fileObject.getExt());
-                            editor.setMimeType(fileObject.getMIMEType());
+            // getCurrentNodes() is Window Manager API — must run on EDT
+            Runnable collector = () -> {
+                Node[] nodes = TopComponent.getRegistry().getCurrentNodes();
+                if (nodes == null) return;
+                for (Node node : nodes) {
+                    EditorCookie editorCookie = node.getLookup().lookup(EditorCookie.class);
+                    if (editorCookie != null) {
+                        DataObject dataObject = node.getLookup().lookup(DataObject.class);
+                        if (dataObject != null) {
+                            FileObject fileObject = dataObject.getPrimaryFile();
+                            if (fileObject != null) {
+                                Editor editor = new Editor();
+                                editor.setName(fileObject.getName());
+                                editor.setPath(fileObject.getPath());
+                                editor.setExtension(fileObject.getExt());
+                                editor.setMimeType(fileObject.getMIMEType());
 
-                            // Get the project owner using FileOwnerQuery
-                            Project owner = FileOwnerQuery.getOwner(fileObject);
-                            if (owner != null) {
-                                editor.setProjectName(ProjectUtils.getInformation(owner).getDisplayName());
-                                editor.setProjectPath(owner.getProjectDirectory().getPath());
+                                Project owner = FileOwnerQuery.getOwner(fileObject);
+                                if (owner != null) {
+                                    editor.setProjectName(ProjectUtils.getInformation(owner).getDisplayName());
+                                    editor.setProjectPath(owner.getProjectDirectory().getPath());
+                                }
+
+                                editors.add(editor);
                             }
-
-                            editors.add(editor);
                         }
                     }
                 }
+            };
+            if (SwingUtilities.isEventDispatchThread()) {
+                collector.run();
+            } else {
+                SwingUtilities.invokeAndWait(collector);
             }
         } catch (Exception e) {
             LOGGER.log(Level.WARNING, "Error getting open documents", e);

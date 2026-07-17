@@ -3,6 +3,7 @@ package org.openbeans.claude.netbeans.tools;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Logger;
+import javax.swing.SwingUtilities;
 import org.openbeans.claude.netbeans.tools.params.CloseTabParams;
 import org.openbeans.claude.netbeans.tools.params.CloseTabResult;
 import org.openbeans.claude.netbeans.tools.params.Content;
@@ -59,14 +60,24 @@ public class CloseTab implements Tool<CloseTabParams, CloseTabResult> {
     }
 
     /* package proctected */ boolean closeTopComponent(String tabName) {
-        TopComponent tc = findTopComponent(tabName);
-        if (tc != null) {
-            // Close the tab
-            tc.close();
-            return true;
-        } else {
-            return false;
+        final boolean[] closed = {false};
+        Runnable closer = () -> {
+            TopComponent tc = findTopComponent(tabName);
+            if (tc != null) {
+                tc.close();
+                closed[0] = true;
+            }
+        };
+        try {
+            if (SwingUtilities.isEventDispatchThread()) {
+                closer.run();
+            } else {
+                SwingUtilities.invokeAndWait(closer);
+            }
+        } catch (Exception e) {
+            LOGGER.warning("Error closing tab on EDT: " + e.getMessage());
         }
+        return closed[0];
     }
 
     @Override

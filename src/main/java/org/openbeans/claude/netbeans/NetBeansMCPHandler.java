@@ -14,6 +14,7 @@ import org.openide.loaders.DataObject;
 import org.openide.nodes.Node;
 import org.openide.windows.TopComponent;
 
+import javax.swing.SwingUtilities;
 import javax.swing.text.Document;
 import javax.swing.text.JTextComponent;
 import javax.swing.text.StyledDocument;
@@ -30,6 +31,7 @@ import java.util.Map;
 import java.util.WeakHashMap;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.beans.PropertyChangeEvent;
@@ -64,6 +66,9 @@ public class NetBeansMCPHandler {
     private final MCPResponseBuilder responseBuilder;
     private Session webSocketSession;
     
+    // Tracks request IDs cancelled by the client while an async tool is pending
+    private final ConcurrentHashMap<Integer, Boolean> cancelledRequests = new ConcurrentHashMap<>();
+
     // Selection tracking
     private final Map<JTextComponent, CaretListener> selectionListeners = new WeakHashMap<>();
     private PropertyChangeListener topComponentListener;
@@ -148,7 +153,13 @@ public class NetBeansMCPHandler {
                 case "prompts/list":
                     response.set("result", handlePromptsList());
                     break;
-                    
+
+                case "notifications/initialized":
+                case "ide_connected":
+                case "notifications/cancelled":
+                    handleCancelled(params);
+                    return null; // notifications never send a response
+
                 default:
                     LOGGER.log(Level.WARNING, "Unknown MCP method: {0}", method);
                     return responseBuilder.createErrorResponse(id, -32601, "Method not found", method);
@@ -244,7 +255,10 @@ public class NetBeansMCPHandler {
     private JsonNode handleToolsCall(JsonNode params, Integer requestId) {
         String toolName = params.get("name").asText();
         JsonNode arguments = params.get("arguments");
-        
+
+        LOGGER.log(Level.INFO, "Tool call [{0}] id={1} args={2}", new Object[]{toolName, requestId, arguments});
+        long startMs = System.currentTimeMillis();
+
         try {
             Object result;
 
@@ -296,23 +310,41 @@ public class NetBeansMCPHandler {
 
             // Check if result is async
             if (result instanceof AsyncResponse) {
+                LOGGER.log(Level.INFO, "Tool call [{0}] id={1} → async, waiting for user interaction", new Object[]{toolName, requestId});
                 AsyncResponse asyncResponse = (AsyncResponse) result;
                 asyncResponse.setHandler(new AsyncHandler() {
                     @Override
                     public void sendResponse(Object finalResult) {
+                        if (cancelledRequests.remove(requestId) != null) {
+                            LOGGER.log(Level.INFO, "Tool call [{0}] id={1} → cancelled, response discarded", new Object[]{toolName, requestId});
+                            return;
+                        }
+                        LOGGER.log(Level.INFO, "Tool call [{0}] id={1} → async response sent", new Object[]{toolName, requestId});
                         sendAsyncToolResponse(requestId, finalResult);
                     }
                 });
                 return null; // No immediate response
             }
 
-            // Sync response
+            long elapsedMs = System.currentTimeMillis() - startMs;
+            LOGGER.log(Level.INFO, "Tool call [{0}] id={1} → OK ({2}ms)", new Object[]{toolName, requestId, elapsedMs});
             return responseBuilder.createToolResponse(result);
 
         } catch (Exception e) {
-            LOGGER.log(Level.SEVERE, "Error executing tool: " + toolName, e);
-            
+            long elapsedMs = System.currentTimeMillis() - startMs;
+            LOGGER.log(Level.SEVERE, "Tool call [{0}] id={1} → ERROR ({2}ms): {3}", new Object[]{toolName, requestId, elapsedMs, e.getMessage()});
             return responseBuilder.createToolResponse("Error: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Records a client-side cancellation so the pending async response is discarded when it arrives.
+     */
+    private void handleCancelled(JsonNode params) {
+        if (params != null && params.has("requestId")) {
+            int cancelledId = params.get("requestId").asInt();
+            cancelledRequests.put(cancelledId, Boolean.TRUE);
+            LOGGER.log(Level.FINE, "Request cancelled by client: {0}", cancelledId);
         }
     }
 
@@ -517,10 +549,11 @@ public class NetBeansMCPHandler {
         
         TopComponent.getRegistry().addPropertyChangeListener(topComponentListener);
         
-        // Track the currently active editor if any
+        // Track the currently active editor if any — must run on EDT
         TopComponent activated = TopComponent.getRegistry().getActivated();
         if (activated != null) {
-            trackEditorSelection(activated);
+            final TopComponent activatedFinal = activated;
+            SwingUtilities.invokeLater(() -> trackEditorSelection(activatedFinal));
         }
         
         LOGGER.log(Level.FINE, "Started selection tracking");

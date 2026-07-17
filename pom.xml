@@ -6,7 +6,7 @@
 
     <groupId>org.openbeans</groupId>
     <artifactId>claude-code-netbeans</artifactId>
-    <version>1.2.0</version>
+    <version>1.3.0</version>
     <packaging>nbm</packaging>
 
     <name>Claude Code NetBeans Plugin</name>
@@ -56,6 +56,20 @@
             </snapshots>
         </repository>
     </repositories>
+
+    <pluginRepositories>
+        <pluginRepository>
+            <id>netbeans</id>
+            <name>NetBeans Platform Maven Repository</name>
+            <url>https://netbeans.osuosl.org/content/repositories/netbeans/</url>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
+        </pluginRepository>
+    </pluginRepositories>
 
     <dependencies>
         <!-- NetBeans Platform Dependencies -->
@@ -142,6 +156,21 @@
         <dependency>
             <groupId>org.netbeans.api</groupId>
             <artifactId>org-netbeans-modules-editor-lib</artifactId>
+            <version>${netbeans.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.netbeans.api</groupId>
+            <artifactId>org-netbeans-modules-java-source</artifactId>
+            <version>${netbeans.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.netbeans.api</groupId>
+            <artifactId>org-netbeans-modules-java-source-base</artifactId>
+            <version>${netbeans.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.netbeans.api</groupId>
+            <artifactId>org-netbeans-spi-editor-hints</artifactId>
             <version>${netbeans.version}</version>
         </dependency>
 

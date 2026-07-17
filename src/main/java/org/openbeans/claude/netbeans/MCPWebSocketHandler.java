@@ -40,24 +40,24 @@ public class MCPWebSocketHandler extends WebSocketAdapter {
     @Override
     public void onWebSocketText(String message) {
         try {
-            LOGGER.log(Level.FINE, "Received MCP message: {0}", message);
-            
+            LOGGER.log(Level.INFO, "WS recv: {0}", message);
+
             // Parse the JSON-RPC message
             JsonNode messageNode = objectMapper.readTree(message);
-            
+
             // Extract ID if present (for error responses)
             Integer requestId = null;
             if (messageNode.has("id") && !messageNode.get("id").isNull()) {
                 requestId = messageNode.get("id").asInt();
             }
-            
+
             // Process the MCP message
             String response = mcpHandler.handleMessage(messageNode);
-            
+
             // Send response back if there is one
             if (response != null && getSession() != null && getSession().isOpen()) {
+                LOGGER.log(Level.INFO, "WS send: {0}", response);
                 getSession().getRemote().sendString(response);
-                LOGGER.log(Level.FINE, "Sent MCP response: {0}", response);
             }
             
         } catch (Exception e) {

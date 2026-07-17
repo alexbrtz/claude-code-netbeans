@@ -41,7 +41,7 @@ public class MCPResponseBuilder {
     
     public JsonNode createToolResponse(Object data) {
         if (data instanceof String) {
-            return new TextNode((String)data);
+            return createToolResponse((String) data);
         } else {
             return objectMapper.convertValue(data, ObjectNode.class);
         }

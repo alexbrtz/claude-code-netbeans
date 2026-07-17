@@ -3,6 +3,7 @@ package org.openbeans.claude.netbeans.tools;
 import java.io.File;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import javax.swing.SwingUtilities;
 import org.openbeans.claude.netbeans.NbUtils;
 import org.openbeans.claude.netbeans.tools.params.CheckDocumentDirtyParams;
 import org.openbeans.claude.netbeans.tools.params.CheckDocumentDirtyResult;
@@ -52,9 +53,22 @@ public class CheckDocumentDirty implements Tool<CheckDocumentDirtyParams, CheckD
                     if (dataObject != null) {
                         boolean isDirty = dataObject.isModified();
 
-                        // Also check if the file is currently open in an editor
+                        // getOpenedPanes() requires EDT
                         EditorCookie editorCookie = dataObject.getLookup().lookup(EditorCookie.class);
-                        boolean isOpen = editorCookie != null && editorCookie.getOpenedPanes() != null && editorCookie.getOpenedPanes().length > 0;
+                        final boolean[] isOpenHolder = {false};
+                        if (editorCookie != null) {
+                            final EditorCookie ec = editorCookie;
+                            Runnable check = () -> {
+                                javax.swing.JEditorPane[] panes = ec.getOpenedPanes();
+                                isOpenHolder[0] = panes != null && panes.length > 0;
+                            };
+                            if (SwingUtilities.isEventDispatchThread()) {
+                                check.run();
+                            } else {
+                                SwingUtilities.invokeAndWait(check);
+                            }
+                        }
+                        boolean isOpen = isOpenHolder[0];
 
                         CheckDocumentDirtyResult result = new CheckDocumentDirtyResult();
                         result.setFilePath(filePath);

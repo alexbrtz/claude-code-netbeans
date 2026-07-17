@@ -1,197 +1,109 @@
 # Claude Code NetBeans Plugin
 
-> **Looking for maintainers:** Due to my current job situation, I'm no longer able to actively contribute to this project. The plugin is essentially unmaintained and needs help. Contributions and new maintainers are very welcome!
-
-A NetBeans IDE plugin that provides integration with Claude Code through the Model Context Protocol (MCP).
-
-![Downloads](https://img.shields.io/endpoint?url=https://openbeans.org/plugin-counter/api/118)
+A NetBeans IDE plugin that integrates Claude Code through the Model Context Protocol (MCP) over WebSocket.
 
 ## Features
 
-- **Automatic Detection**: Creates a lock file that Claude Code CLI can discover
-- **WebSocket Communication**: Establishes real-time communication using MCP over WebSocket
-- **IDE Integration**: Provides access to NetBeans project structure, file operations, and editor content
-- **File Operations**: Read, write, and list files through Claude Code
-- **Project Management**: Access open projects and project files
-- **Document Access**: Retrieve content from open documents in the editor
+- **Automatic detection** — creates a lock file at `~/.claude/ide/{port}.lock` that Claude Code CLI discovers automatically
+- **10 MCP tools** — file operations, editor access, diagnostics, interactive diff viewer
+- **Real-time selection events** — notifies Claude Code when the editor selection changes
+- **Auto-start** — starts the WebSocket server when NetBeans launches; no manual setup required
+
+## Requirements
+
+- Apache NetBeans 23.0 (RELEASE190) or later
+- Java 17 or later
 
 ## Installation
 
-### Prerequisites
+### Option A — Download pre-built NBM
 
-- NetBeans IDE 23.0 or later
-- Java 11 or later
-- Maven 3.6 or later
+Download the latest `.nbm` from the [releases page](https://github.com/emilianbold/claude-code-netbeans/releases) and install via **Tools → Plugins → Downloaded → Add Plugins**.
 
-### Building the Plugin
-
-1. Clone or download this project
-2. Navigate to the project directory
-3. Build the plugin:
+### Option B — Build from source
 
 ```bash
-mvn clean package
+git clone https://github.com/emilianbold/claude-code-netbeans.git
+cd claude-code-netbeans
+mvn clean package -DskipTests
 ```
 
-4. The plugin will be built as `target/claude-code-netbeans-1.0.0.nbm`
+The plugin is built at `target/claude-code-netbeans-1.3.0.nbm`.
 
-### Installing in NetBeans
+> **Note:** The first build requires internet access to download `nbm-maven-plugin` from the NetBeans OSU repository.
 
-1. Open NetBeans IDE
-2. Go to **Tools > Plugins**
-3. Click the **Downloaded** tab
-4. Click **Add Plugins...** and select the `.nbm` file
-5. Follow the installation wizard
-6. Restart NetBeans when prompted
+Install the `.nbm` in NetBeans: **Tools → Plugins → Downloaded → Add Plugins**, then restart.
 
 ## Usage
 
-### Automatic Startup
+1. Open NetBeans with your project
+2. In any terminal, run `claude`
+3. Run `/ide` to verify the connection
 
-The plugin automatically starts when NetBeans launches and:
+Claude Code will automatically detect the running NetBeans instance via the lock file.
 
-1. **Creates Lock File**: Writes connection information to `~/.claude/ide/{port}.lock`
-2. **Starts WebSocket Server**: Listens on an available port (8990-9100 range)
-3. **Updates on Changes**: Refreshes workspace information when projects are opened/closed
+## Available Tools
 
-### Using with Claude Code
-
-1. **Install Claude Code**: Follow the [official installation guide](https://docs.anthropic.com/en/docs/claude-code/overview)
-
-2. **Start NetBeans**: Open NetBeans with your project
-
-3. **Run Claude Code**: In any terminal, run:
-   ```bash
-   claude
-   ```
-
-4. **Verify Connection**: Claude Code should automatically detect NetBeans. You can verify with:
-   ```bash
-   /ide
-   ```
-
-### Available MCP Tools
-
-The plugin provides these tools to Claude Code:
-
-#### File Operations
-- `read_file`: Read file contents
-- `write_file`: Write content to files
-- `list_files`: List directory contents
-
-#### Project Operations
-- `get_open_projects`: List all open projects
-- `get_project_files`: Get files in a specific project
-
-#### Editor Operations
-- `get_open_documents`: List open documents
-- `get_document_content`: Get content from open documents
-
-### Plugin Status
-
-Check the plugin status through **Tools > Claude Code Status** in the NetBeans menu.
+| Tool | Description |
+|------|-------------|
+| `openFile` | Open a file in the NetBeans editor |
+| `getWorkspaceFolders` | List open projects (name + path) |
+| `getOpenEditors` | List all open editor tabs |
+| `getCurrentSelection` | Get selected text and cursor position |
+| `getDiagnostics` | Get errors and warnings from a file (or all open files) — javac errors and IDE inspections |
+| `saveDocument` | Save a file to disk |
+| `checkDocumentDirty` | Check whether a file has unsaved changes |
+| `close_tab` | Close an editor tab by name |
+| `closeAllDiffTabs` | Close all open diff tabs |
+| `openDiff` | Open an interactive diff viewer; resolves when user approves or rejects |
 
 ## Architecture
 
-### Components
-
-1. **ClaudeCodeInstaller**: Main plugin lifecycle manager
-2. **LockFileManager**: Handles lock file creation and updates
-3. **WebSocketMCPServer**: WebSocket server for MCP communication
-4. **NetBeansMCPHandler**: Processes MCP messages and provides IDE capabilities
-5. **MCPWebSocketHandler**: WebSocket message routing
-
-### Communication Flow
-
 ```
-Claude Code CLI → WebSocket → NetBeans Plugin → NetBeans IDE APIs
-                ←           ←                  ←
+Claude CLI
+    ↓ WebSocket (port 8990–9100)
+WebSocketMCPServer (Jetty 11)
+    ↓
+NetBeansMCPHandler  ←→  NetBeans IDE APIs
+    ↓
+tools/ (one class per tool)
 ```
 
-### Lock File Format
+**Discovery:** on startup the plugin writes `~/.claude/ide/{port}.lock` with connection info (pid, port, authToken, workspaceFolders). Claude CLI scans that directory to find running IDE instances.
 
+**Lock file format:**
 ```json
 {
   "pid": 12345,
   "ideName": "NetBeans",
   "transport": "ws",
+  "authToken": "<uuid>",
   "port": 8991,
   "workspaceFolders": ["/path/to/project"]
 }
 ```
 
-## Development
-
-### Project Structure
-
-```
-src/main/java/org/openbeans/claude/netbeans/
-├── ClaudeCodeInstaller.java      # Plugin lifecycle
-├── LockFileManager.java          # Lock file management
-├── WebSocketMCPServer.java       # WebSocket server
-├── MCPWebSocketHandler.java      # WebSocket message handler
-├── NetBeansMCPHandler.java       # MCP protocol implementation
-└── ClaudeCodeAction.java         # Status action
-
-src/main/resources/
-├── org/openbeans/claude/netbeans/Bundle.properties
-└── META-INF/services/org.openide.modules.ModuleInstall
-
-src/main/nbm/
-└── manifest.mf                   # Plugin manifest
-```
-
-### Dependencies
-
-- **NetBeans Platform APIs**: IDE integration
-- **Model Context Protocol SDK**: MCP implementation
-- **Jetty WebSocket**: WebSocket server
-- **Jackson**: JSON processing
-
-### Building for Development
-
-```bash
-# Build and install in development NetBeans
-mvn clean install nbm:run-ide
-
-# Package for distribution
-mvn clean package
-```
-
 ## Troubleshooting
 
-### Plugin Not Loading
-- Check NetBeans logs: **View > IDE Log**
-- Verify Java 11+ is being used
-- Ensure all dependencies are available
+**Plugin not loading** — check **View → IDE Log** for errors on startup.
 
-### Claude Code Not Connecting
-- Verify lock file exists: `~/.claude/ide/{port}.lock`
-- Check if WebSocket port is accessible
-- Review plugin status: **Tools > Claude Code Status**
+**Claude Code not connecting** — verify the lock file exists: `~/.claude/ide/`. Check that the port range 8990–9100 is not blocked by a firewall.
 
-### WebSocket Connection Issues
-- Check firewall settings for the port range (8990-9100)
-- Verify no other applications are using the ports
-- Review NetBeans and plugin logs
+**`getDiagnostics` returns empty** — IDE inspections are only available for files currently open in the editor that NetBeans has already analyzed (squiggles visible). javac diagnostics work for any file in an open project.
+
+## Development
+
+See [CLAUDE.md](CLAUDE.md) for architecture details, known bugs, and patterns for adding new tools.
+
+```bash
+# Run plugin in a development NetBeans instance
+mvn clean install nbm:run-ide
+```
 
 ## Contributing
 
-Contributions are very welcome! Feel free to:
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
+Contributions welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) if it exists, otherwise open a PR directly.
 
 ## License
 
-See the LICENSE file for details.
-
-## Support
-
-For issues and questions:
-- Check the NetBeans IDE logs
-- Review Claude Code documentation
-- Create an issue in the project repository
+ISC License — see [LICENSE](LICENSE).
