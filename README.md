@@ -8,6 +8,8 @@ A NetBeans IDE plugin that integrates Claude Code through the Model Context Prot
 - **10 MCP tools** — file operations, editor access, diagnostics, interactive diff viewer
 - **Real-time selection events** — notifies Claude Code when the editor selection changes
 - **Auto-start** — starts the WebSocket server when NetBeans launches; no manual setup required
+- **Multi-client** — supports more than one simultaneously connected Claude Code session
+- **Status panel** — a dockable window (Window → Claude Code Status Panel) showing server state, port, PID, lock file validity, and connected client count, with a Restart Server button
 
 ## Requirements
 
@@ -18,19 +20,27 @@ A NetBeans IDE plugin that integrates Claude Code through the Model Context Prot
 
 ### Option A — Download pre-built NBM
 
-Download the latest `.nbm` from the [releases page](https://github.com/emilianbold/claude-code-netbeans/releases) and install via **Tools → Plugins → Downloaded → Add Plugins**.
+Download the latest `.nbm` from the [releases page](https://github.com/alexbrtz/claude-code-netbeans/releases) and install via **Tools → Plugins → Downloaded → Add Plugins**.
 
 ### Option B — Build from source
 
 ```bash
-git clone https://github.com/emilianbold/claude-code-netbeans.git
+git clone https://github.com/alexbrtz/claude-code-netbeans.git
 cd claude-code-netbeans
 mvn clean package -DskipTests
 ```
 
-The plugin is built at `target/claude-code-netbeans-1.3.0.nbm`.
+The plugin is built at `target/nbm/claude-code-netbeans-1.4.0.nbm`.
 
 > **Note:** The first build requires internet access to download `nbm-maven-plugin` from the NetBeans OSU repository.
+
+> **Note:** Build with **JDK 17** (`JAVA_HOME` pointed at a JDK 17 install). NetBeans's own
+> annotation processors (`@ServiceProvider`, `@ActionID`/`@ActionReference`,
+> `@TopComponent.Registration`) silently produce no output — no `layer.xml`, no
+> `META-INF/services/*` — when compiled with much newer JDKs (observed with JDK 26), which means
+> the Tools/Window menu entries and the status bar element won't be registered even though the
+> build reports `BUILD SUCCESS`. If menu items or the status panel don't appear after installing
+> the `.nbm`, rebuild with `JAVA_HOME` set to a JDK 17 install and check again.
 
 Install the `.nbm` in NetBeans: **Tools → Plugins → Downloaded → Add Plugins**, then restart.
 

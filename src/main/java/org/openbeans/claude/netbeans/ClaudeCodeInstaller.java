@@ -113,26 +113,49 @@ public class ClaudeCodeInstaller extends ModuleInstall implements PropertyChange
      * Starts the MCP WebSocket server and creates the lock file.
      */
     private void startMCPServer() {
-        RP.post(() -> {
-            try {
-                // Start the WebSocket server
-                if (mcpServer.start()) {
-                    int port = mcpServer.getPort();
-                    long pid = LockFileManager.getCurrentProcessId();
-                    
-                    // Create lock file with server information
-                    lockFileManager.createLockFile(port, pid);
-                    
-                    LOGGER.log(Level.INFO, "Claude Code MCP server started on port {0}, PID {1}", 
-                              new Object[]{port, pid});
-                } else {
-                    LOGGER.severe("Failed to start Claude Code MCP server");
-                }
-                
-            } catch (Exception e) {
-                LOGGER.log(Level.SEVERE, "Error starting Claude Code MCP server", e);
-                Exceptions.printStackTrace(e);
+        RP.post(this::doStart);
+    }
+
+    /**
+     * Starts the WebSocket server and creates the lock file. Must run off the EDT
+     * (invoked via {@code RP}); called both on initial startup and on restart.
+     */
+    private void doStart() {
+        try {
+            // Start the WebSocket server
+            if (mcpServer.start()) {
+                int port = mcpServer.getPort();
+                long pid = LockFileManager.getCurrentProcessId();
+
+                // Create lock file with server information
+                lockFileManager.createLockFile(port, pid);
+
+                LOGGER.log(Level.INFO, "Claude Code MCP server started on port {0}, PID {1}",
+                          new Object[]{port, pid});
+            } else {
+                LOGGER.severe("Failed to start Claude Code MCP server");
             }
+
+        } catch (Exception e) {
+            LOGGER.log(Level.SEVERE, "Error starting Claude Code MCP server", e);
+            Exceptions.printStackTrace(e);
+        }
+    }
+
+    /**
+     * Restarts the MCP WebSocket server: stops it, removes the current lock file,
+     * then starts it again and recreates the lock file. Runs on the {@code RP}
+     * executor, never on the calling thread.
+     */
+    @Override
+    public void restartServer() {
+        RP.post(() -> {
+            LOGGER.info("Restarting Claude Code MCP server...");
+            stopMCPServer();
+            if (lockFileManager != null) {
+                lockFileManager.removeLockFile();
+            }
+            doStart();
         });
     }
     
@@ -216,5 +239,25 @@ public class ClaudeCodeInstaller extends ModuleInstall implements PropertyChange
     @Override
     public boolean isLockFileValid() {
         return lockFileManager != null && lockFileManager.isLockFileValid();
+    }
+
+    /**
+     * Gets the number of Claude Code clients currently connected via WebSocket.
+     *
+     * @return number of connected clients, 0 if none
+     */
+    @Override
+    public int getConnectedClientCount() {
+        return mcpHandler != null ? mcpHandler.getConnectedClientCount() : 0;
+    }
+
+    /**
+     * Gets the process ID of this NetBeans instance.
+     *
+     * @return process ID
+     */
+    @Override
+    public long getServerPid() {
+        return LockFileManager.getCurrentProcessId();
     }
 }

@@ -31,6 +31,7 @@ import java.util.Map;
 import java.util.WeakHashMap;
 import java.util.List;
 import java.util.ArrayList;
+import java.time.Instant;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -64,8 +65,18 @@ public class NetBeansMCPHandler {
     private static final Logger LOGGER = Logger.getLogger(NetBeansMCPHandler.class.getName());
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final MCPResponseBuilder responseBuilder;
-    private Session webSocketSession;
-    
+    private final Map<Session, ClientInfo> sessions = new ConcurrentHashMap<>();
+
+    private static final class ClientInfo {
+        final String remoteAddress;
+        final Instant connectedAt;
+
+        ClientInfo(String remoteAddress, Instant connectedAt) {
+            this.remoteAddress = remoteAddress;
+            this.connectedAt = connectedAt;
+        }
+    }
+
     // Tracks request IDs cancelled by the client while an async tool is pending
     private final ConcurrentHashMap<Integer, Boolean> cancelledRequests = new ConcurrentHashMap<>();
 
@@ -104,9 +115,10 @@ public class NetBeansMCPHandler {
      * Handles incoming MCP messages and routes them to appropriate handlers.
      * 
      * @param message the JSON-RPC message
+     * @param session the WebSocket session this message arrived on
      * @return response JSON string, or null if no response needed
      */
-    public String handleMessage(JsonNode message) {
+    public String handleMessage(JsonNode message, Session session) {
         try {
             String method = message.get("method").asText();
             JsonNode params = message.get("params");
@@ -126,15 +138,15 @@ public class NetBeansMCPHandler {
                     // Send the response first
                     String initResponse = objectMapper.writeValueAsString(response);
                     // Then send notifications/initialized notification
-                    sendInitializedNotification();
+                    sendInitializedNotification(session);
                     return initResponse;
-                    
+
                 case "tools/list":
                     response.set("result", handleToolsList());
                     break;
-                    
+
                 case "tools/call":
-                    JsonNode toolResult = handleToolsCall(params, id);
+                    JsonNode toolResult = handleToolsCall(params, id, session);
                     if (toolResult == null) {
                         // Async tool - no immediate response
                         return null;
@@ -208,14 +220,14 @@ public class NetBeansMCPHandler {
     /**
      * Sends the notifications/initialized notification after successful initialization.
      */
-    private void sendInitializedNotification() {
+    private void sendInitializedNotification(Session session) {
         try {
-            if (webSocketSession != null && webSocketSession.isOpen()) {
+            if (session != null && session.isOpen()) {
                 ObjectNode notification = responseBuilder.createNotification(
                     "notifications/initialized", null
                 );
                 String message = objectMapper.writeValueAsString(notification);
-                webSocketSession.getRemote().sendString(message);
+                session.getRemote().sendString(message);
                 LOGGER.log(Level.FINE, "Sent notifications/initialized notification");
             }
         } catch (Exception e) {
@@ -252,7 +264,7 @@ public class NetBeansMCPHandler {
      * @param requestId Request ID for async response handling
      * @return JsonNode result for sync tools, null for async tools
      */
-    private JsonNode handleToolsCall(JsonNode params, Integer requestId) {
+    private JsonNode handleToolsCall(JsonNode params, Integer requestId, Session session) {
         String toolName = params.get("name").asText();
         JsonNode arguments = params.get("arguments");
 
@@ -320,7 +332,7 @@ public class NetBeansMCPHandler {
                             return;
                         }
                         LOGGER.log(Level.INFO, "Tool call [{0}] id={1} → async response sent", new Object[]{toolName, requestId});
-                        sendAsyncToolResponse(requestId, finalResult);
+                        sendAsyncToolResponse(session, requestId, finalResult);
                     }
                 });
                 return null; // No immediate response
@@ -350,12 +362,13 @@ public class NetBeansMCPHandler {
 
     /**
      * Sends an async tool response via WebSocket.
+     * @param session The session that originated the request
      * @param requestId The original request ID
      * @param result The tool result to send
      */
-    private void sendAsyncToolResponse(Integer requestId, Object result) {
+    private void sendAsyncToolResponse(Session session, Integer requestId, Object result) {
         try {
-            if (webSocketSession == null || !webSocketSession.isOpen()) {
+            if (session == null || !session.isOpen()) {
                 LOGGER.warning("Cannot send async response - WebSocket not open");
                 return;
             }
@@ -366,7 +379,7 @@ public class NetBeansMCPHandler {
             response.set("result", responseBuilder.createToolResponse(result));
 
             String message = objectMapper.writeValueAsString(response);
-            webSocketSession.getRemote().sendString(message);
+            session.getRemote().sendString(message);
 
             LOGGER.log(Level.INFO, "Sent async tool response for request ID: {0}", requestId);
         } catch (Exception e) {
@@ -516,18 +529,33 @@ public class NetBeansMCPHandler {
         return tool;
     }
     
-    public void setWebSocketSession(Session session) {
-        this.webSocketSession = session;
-        
-        if (session != null) {
-            // Start tracking selection changes and diff tabs when connected
+    public void addSession(Session session) {
+        boolean wasEmpty = sessions.isEmpty();
+        sessions.put(session, new ClientInfo(String.valueOf(session.getRemoteAddress()), Instant.now()));
+
+        if (wasEmpty) {
+            // Start tracking selection changes and diff tabs once the first client connects
             startSelectionTracking();
             startDiffTabTracking();
-        } else {
-            // Stop tracking when disconnected
+        }
+    }
+
+    public void removeSession(Session session) {
+        sessions.remove(session);
+
+        if (sessions.isEmpty()) {
+            // Stop tracking once the last client disconnects
             stopSelectionTracking();
             stopDiffTabTracking();
         }
+    }
+
+    public boolean isConnected() {
+        return !sessions.isEmpty();
+    }
+
+    public int getConnectedClientCount() {
+        return sessions.size();
     }
     
     /**
@@ -682,10 +710,10 @@ public class NetBeansMCPHandler {
      */
     private void sendSelectionChangeEvent(JTextComponent textComponent, Node node) {
         try {
-            if (webSocketSession == null || !webSocketSession.isOpen()) {
+            if (sessions.isEmpty()) {
                 return;
             }
-            
+
             // Get selection details
             String selectedText = textComponent.getSelectedText();
             int selectionStart = textComponent.getSelectionStart();
@@ -739,16 +767,33 @@ public class NetBeansMCPHandler {
                     
                     params.set("selection", selection);
                     
-                    // Create and send the notification
+                    // Create and broadcast the notification to every connected client
                     ObjectNode notification = responseBuilder.createNotification("selection_changed", params);
                     String message = objectMapper.writeValueAsString(notification);
-                    webSocketSession.getRemote().sendString(message);
-                    
+                    broadcast(message);
+
                     LOGGER.log(Level.FINE, "Sent selection_changed event: {0}", message);
                 }
             }
         } catch (Exception e) {
             LOGGER.log(Level.WARNING, "Error sending selection change event", e);
+        }
+    }
+
+    /**
+     * Sends a raw JSON message to every currently connected client session.
+     */
+    private void broadcast(String message) {
+        for (Session s : sessions.keySet()) {
+            try {
+                if (s.isOpen()) {
+                    s.getRemote().sendString(message);
+                } else {
+                    sessions.remove(s);
+                }
+            } catch (Exception e) {
+                LOGGER.log(Level.WARNING, "Error broadcasting to session", e);
+            }
         }
     }
 }

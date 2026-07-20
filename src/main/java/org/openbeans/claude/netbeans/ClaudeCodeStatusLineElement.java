@@ -7,6 +7,8 @@ import javax.swing.JLabel;
 import org.openide.awt.StatusLineElementProvider;
 import org.openide.util.Lookup;
 import org.openide.util.lookup.ServiceProvider;
+import org.openide.windows.TopComponent;
+import org.openide.windows.WindowManager;
 
 /**
  * Status bar element for Claude Code integration status.
@@ -32,7 +34,11 @@ public class ClaudeCodeStatusLineElement implements StatusLineElementProvider {
         statusLabel.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                // Could show status dialog or perform action
+                TopComponent tc = WindowManager.getDefault().findTopComponent("ClaudeCodeStatusTopComponent");
+                if (tc != null) {
+                    tc.open();
+                    tc.requestActive();
+                }
             }
             
             @Override

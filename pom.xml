@@ -6,12 +6,12 @@
 
     <groupId>org.openbeans</groupId>
     <artifactId>claude-code-netbeans</artifactId>
-    <version>1.3.0</version>
+    <version>1.4.0</version>
     <packaging>nbm</packaging>
 
     <name>Claude Code NetBeans Plugin</name>
     <description>NetBeans integration for Claude Code via Model Context Protocol</description>
-    <url>https://github.com/emilianbold/claude-code-netbeans</url>
+    <url>https://github.com/alexbrtz/claude-code-netbeans</url>
 
     <licenses>
         <license>
@@ -27,12 +27,16 @@
             <name>Emilian Bold</name>
             <email>emi@apache.org</email>
         </developer>
+        <developer>
+            <id>alexbrtz</id>
+            <name>Fabio Britez</name>
+        </developer>
     </developers>
 
     <scm>
-        <connection>scm:git:git://github.com/emilianbold/claude-code-netbeans.git</connection>
-        <developerConnection>scm:git:ssh://github.com:emilianbold/claude-code-netbeans.git</developerConnection>
-        <url>https://github.com/emilianbold/claude-code-netbeans</url>
+        <connection>scm:git:git://github.com/alexbrtz/claude-code-netbeans.git</connection>
+        <developerConnection>scm:git:ssh://github.com:alexbrtz/claude-code-netbeans.git</developerConnection>
+        <url>https://github.com/alexbrtz/claude-code-netbeans</url>
     </scm>
 
     <properties>

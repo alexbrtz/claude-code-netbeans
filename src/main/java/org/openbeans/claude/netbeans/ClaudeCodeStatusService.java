@@ -30,8 +30,29 @@ public interface ClaudeCodeStatusService {
     
     /**
      * Checks if the lock file is valid and accessible.
-     * 
+     *
      * @return true if lock file is valid, false otherwise
      */
     boolean isLockFileValid();
+
+    /**
+     * Restarts the MCP WebSocket server: stops it, removes the current lock file,
+     * then starts it again (which may pick a different port) and recreates the
+     * lock file. Runs asynchronously; does not block the calling thread.
+     */
+    void restartServer();
+
+    /**
+     * Gets the number of Claude Code clients currently connected via WebSocket.
+     *
+     * @return number of connected clients, 0 if none
+     */
+    int getConnectedClientCount();
+
+    /**
+     * Gets the process ID of this NetBeans instance.
+     *
+     * @return process ID
+     */
+    long getServerPid();
 }

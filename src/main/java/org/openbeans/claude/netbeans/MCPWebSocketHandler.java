@@ -21,7 +21,8 @@ public class MCPWebSocketHandler extends WebSocketAdapter {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final NetBeansMCPHandler mcpHandler;
     private final MCPResponseBuilder responseBuilder;
-    
+    private Session session;
+
     public MCPWebSocketHandler(NetBeansMCPHandler mcpHandler) {
         this.mcpHandler = mcpHandler;
         this.responseBuilder = new MCPResponseBuilder(objectMapper);
@@ -30,11 +31,12 @@ public class MCPWebSocketHandler extends WebSocketAdapter {
     @Override
     public void onWebSocketConnect(Session session) {
         super.onWebSocketConnect(session);
-        LOGGER.log(Level.INFO, "Claude Code connected via WebSocket from {0}", 
+        this.session = session;
+        LOGGER.log(Level.INFO, "Claude Code connected via WebSocket from {0}",
                   session.getRemoteAddress());
-        
+
         // Register this session with the MCP handler
-        mcpHandler.setWebSocketSession(session);
+        mcpHandler.addSession(session);
     }
     
     @Override
@@ -52,7 +54,7 @@ public class MCPWebSocketHandler extends WebSocketAdapter {
             }
 
             // Process the MCP message
-            String response = mcpHandler.handleMessage(messageNode);
+            String response = mcpHandler.handleMessage(messageNode, this.session);
 
             // Send response back if there is one
             if (response != null && getSession() != null && getSession().isOpen()) {
@@ -86,7 +88,7 @@ public class MCPWebSocketHandler extends WebSocketAdapter {
                   new Object[]{statusCode, reason});
         
         // Unregister this session
-        mcpHandler.setWebSocketSession(null);
+        mcpHandler.removeSession(this.session);
     }
     
     @Override

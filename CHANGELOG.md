@@ -4,8 +4,32 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-07-20
+
+### Added
+- **Claude Code Status panel** (`ui/ClaudeCodeStatusTopComponent`) — a dockable window showing
+  server running state, port, PID, lock file validity, and number of connected clients, with a
+  **Restart Server** button. Open it from **Window → Claude Code Status Panel** or by clicking
+  the "Claude ✓/~/✗" label in the status bar.
+- `ClaudeCodeStatusService`: new `restartServer()`, `getServerPid()`, and
+  `getConnectedClientCount()` methods backing the new panel.
+- **Multi-client support** — the WebSocket server now correctly handles more than one
+  simultaneously connected Claude Code session. Previously a second connection silently replaced
+  the first internally (`NetBeansMCPHandler` held a single shared `Session`), which orphaned the
+  first client's socket, misrouted async tool responses (e.g. `openDiff`) and selection-change
+  notifications to whichever session connected most recently, and leaked duplicate editor
+  listeners on every reconnect. Sessions are now tracked in a registry; async responses are routed
+  back to the session that made the original request, and selection-change notifications are
+  broadcast to all connected clients. Editor/diff-tab tracking now starts once on the first
+  connection and stops once on the last disconnection, instead of on every individual connect/close.
+
 ### Known Issues
 - `resources/read` implementation marked as incorrect internally (XXX comment)
+- All connected clients currently see the same workspace/selection context regardless of which
+  project folder they were started in — planned next step is to send a `roots/list` request to
+  each client after `initialize` (already advertised via `capabilities.roots` in the Claude Code
+  CLI handshake) and use the returned workspace root(s) to scope per-client notifications and
+  responses instead of broadcasting/returning everything to everyone.
 
 ## [1.3.0] - 2026-07-17
 
