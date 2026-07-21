@@ -1,6 +1,6 @@
-# Claude Code NetBeans Plugin
+# Claude Code for Apache NetBeans
 
-A NetBeans IDE plugin that integrates Claude Code through the Model Context Protocol (MCP) over WebSocket.
+An **Apache NetBeans** IDE plugin (NBM module) that connects the [Claude Code](https://claude.com/claude-code) CLI to NetBeans via a local **Model Context Protocol (MCP)** WebSocket server — giving Claude Code live access to your NetBeans editor: open files, selections, diagnostics, and an interactive diff viewer.
 
 ## Features
 
