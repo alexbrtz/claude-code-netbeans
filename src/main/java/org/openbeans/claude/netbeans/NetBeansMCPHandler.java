@@ -23,16 +23,20 @@ import javax.swing.event.CaretListener;
 import org.openide.text.NbDocument;
 import java.io.File;
 import java.io.InputStream;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Collections;
 import java.util.Map;
 import java.util.WeakHashMap;
 import java.util.List;
 import java.util.ArrayList;
 import java.time.Instant;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.beans.PropertyChangeEvent;
@@ -70,12 +74,17 @@ public class NetBeansMCPHandler {
     private static final class ClientInfo {
         final String remoteAddress;
         final Instant connectedAt;
+        volatile List<String> roots = Collections.emptyList();
 
         ClientInfo(String remoteAddress, Instant connectedAt) {
             this.remoteAddress = remoteAddress;
             this.connectedAt = connectedAt;
         }
     }
+
+    // Server-initiated requests (e.g. roots/list) awaiting a matching client response
+    private final AtomicInteger nextServerRequestId = new AtomicInteger(1);
+    private final Map<Integer, Consumer<JsonNode>> pendingServerRequests = new ConcurrentHashMap<>();
 
     // Tracks request IDs cancelled by the client while an async tool is pending
     private final ConcurrentHashMap<Integer, Boolean> cancelledRequests = new ConcurrentHashMap<>();
@@ -120,6 +129,18 @@ public class NetBeansMCPHandler {
      */
     public String handleMessage(JsonNode message, Session session) {
         try {
+            if (!message.has("method")) {
+                // A response to a server-initiated request (e.g. roots/list) - no "method" field
+                Integer responseId = message.has("id") ? message.get("id").asInt() : null;
+                Consumer<JsonNode> callback = responseId != null ? pendingServerRequests.remove(responseId) : null;
+                if (callback != null) {
+                    callback.accept(message.get("result"));
+                } else {
+                    LOGGER.log(Level.FINE, "Received response for unknown/expired request id: {0}", responseId);
+                }
+                return null;
+            }
+
             String method = message.get("method").asText();
             JsonNode params = message.get("params");
             Integer id = message.has("id") ? message.get("id").asInt() : null;
@@ -139,6 +160,8 @@ public class NetBeansMCPHandler {
                     String initResponse = objectMapper.writeValueAsString(response);
                     // Then send notifications/initialized notification
                     sendInitializedNotification(session);
+                    // Ask the client for its workspace roots, if it declared support
+                    requestRoots(session, params);
                     return initResponse;
 
                 case "tools/list":
@@ -234,7 +257,57 @@ public class NetBeansMCPHandler {
             LOGGER.log(Level.WARNING, "Failed to send initialized notification", e);
         }
     }
-    
+
+    /**
+     * Asks the client for its workspace root folders via a server-initiated
+     * roots/list request, if the client declared roots capability support in
+     * its initialize params. The result (if any) is stored on that session's
+     * ClientInfo once the client responds.
+     */
+    private void requestRoots(Session session, JsonNode initializeParams) {
+        boolean supportsRoots = initializeParams != null
+            && initializeParams.has("capabilities")
+            && initializeParams.get("capabilities").has("roots");
+        if (!supportsRoots || session == null || !session.isOpen()) {
+            return;
+        }
+        try {
+            int requestId = nextServerRequestId.getAndIncrement();
+            pendingServerRequests.put(requestId, result -> handleRootsListResult(session, result));
+            ObjectNode request = responseBuilder.createRequest(requestId, "roots/list", null);
+            session.getRemote().sendString(objectMapper.writeValueAsString(request));
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING, "Error requesting roots/list", e);
+        }
+    }
+
+    /**
+     * Handles the client's response to a roots/list request: converts each
+     * returned file:// URI to a local path and stores the list on that
+     * session's ClientInfo for use when filtering broadcasts.
+     */
+    private void handleRootsListResult(Session session, JsonNode result) {
+        if (result == null || !result.has("roots")) {
+            return;
+        }
+        List<String> rootPaths = new ArrayList<>();
+        for (JsonNode root : result.get("roots")) {
+            if (root.has("uri")) {
+                String uri = root.get("uri").asText();
+                try {
+                    rootPaths.add(new File(new URI(uri)).getAbsolutePath());
+                } catch (Exception e) {
+                    LOGGER.log(Level.WARNING, "Invalid root URI: {0}", uri);
+                }
+            }
+        }
+        ClientInfo info = sessions.get(session);
+        if (info != null) {
+            info.roots = rootPaths;
+            LOGGER.log(Level.INFO, "Resolved client roots: {0}", rootPaths);
+        }
+    }
+
     /**
      * Lists available tools (executable functions).
      */
@@ -242,16 +315,16 @@ public class NetBeansMCPHandler {
         ArrayNode tools = responseBuilder.arrayNode();
         
         // Core Claude Code tools - names/descriptions in code, schemas from JSON
-        tools.add(createToolDefinition("openFile", "Opens a file in the editor", "OpenFileParams"));
-        tools.add(createToolDefinition("getWorkspaceFolders", "Get list of workspace folders (open projects)", "getWorkspaceFolders"));
-        tools.add(createToolDefinition("getOpenEditors", "Get list of currently open editor tabs", "getOpenEditors"));
-        tools.add(createToolDefinition("getCurrentSelection", "Get the current text selection in the active editor", "getCurrentSelection"));
-        tools.add(createToolDefinition("close_tab", "Close an open editor tab", "CloseTabParams"));
-        tools.add(createToolDefinition("getDiagnostics", "Get diagnostic information (errors, warnings) for files", "GetDiagnosticsParams"));
-        tools.add(createToolDefinition("checkDocumentDirty", "Check if a document has unsaved changes", "CheckDocumentDirtyParams"));
-        tools.add(createToolDefinition("saveDocument", "Save a document to disk", "SaveDocumentParams"));
-        tools.add(createToolDefinition("closeAllDiffTabs", "Close all diff viewer tabs", "CloseAllDiffTabsParams"));
-        tools.add(createToolDefinition("openDiff", "Open a git diff for the file", "OpenDiffParams"));
+        tools.add(createToolDefinition("openFile", "Opens a file in the NetBeans editor. The file must be inside one of the currently open projects.", "OpenFileParams"));
+        tools.add(createToolDefinition("getWorkspaceFolders", "Lists the NetBeans projects currently open in the IDE, with each project's display name and root path.", "getWorkspaceFolders"));
+        tools.add(createToolDefinition("getOpenEditors", "Lists every editor tab currently open in the IDE, across all open projects.", "getOpenEditors"));
+        tools.add(createToolDefinition("getCurrentSelection", "Gets the selected text and cursor position in the currently active editor tab.", "getCurrentSelection"));
+        tools.add(createToolDefinition("close_tab", "Closes an open editor tab by its display name (see getOpenEditors for tab names).", "CloseTabParams"));
+        tools.add(createToolDefinition("getDiagnostics", "Gets compiler errors/warnings and IDE inspection results. Pass uri to scope to one file; if uri is omitted, returns diagnostics for every currently open file across all open projects.", "GetDiagnosticsParams"));
+        tools.add(createToolDefinition("checkDocumentDirty", "Checks whether a file has unsaved changes in the editor.", "CheckDocumentDirtyParams"));
+        tools.add(createToolDefinition("saveDocument", "Saves an open file's current editor content to disk.", "SaveDocumentParams"));
+        tools.add(createToolDefinition("closeAllDiffTabs", "Closes every open diff viewer tab.", "CloseAllDiffTabsParams"));
+        tools.add(createToolDefinition("openDiff", "Opens an interactive side-by-side diff viewer comparing file contents (not tied to git); the user approves or rejects the change from the NetBeans UI.", "OpenDiffParams"));
         
         ObjectNode result = responseBuilder.objectNode();
         result.set("tools", tools);
@@ -460,12 +533,15 @@ public class NetBeansMCPHandler {
      */
     private JsonNode handlePromptsList() {
         ArrayNode prompts = responseBuilder.arrayNode();
-        
-        ObjectNode codeReviewPrompt = responseBuilder.objectNode();
-        codeReviewPrompt.put("name", "code_review");
-        codeReviewPrompt.put("description", "Review code in NetBeans project");
-        prompts.add(codeReviewPrompt);
-        
+
+        // Disabled: advertised a "code_review" prompt with no backing prompts/get
+        // implementation (calling it would hit "Method not found"). Left here commented
+        // out in case it's worth implementing for real later.
+        // ObjectNode codeReviewPrompt = responseBuilder.objectNode();
+        // codeReviewPrompt.put("name", "code_review");
+        // codeReviewPrompt.put("description", "Review code in NetBeans project");
+        // prompts.add(codeReviewPrompt);
+
         ObjectNode result = responseBuilder.objectNode();
         result.set("prompts", prompts);
         return result;
@@ -767,10 +843,10 @@ public class NetBeansMCPHandler {
                     
                     params.set("selection", selection);
                     
-                    // Create and broadcast the notification to every connected client
+                    // Create and broadcast the notification to clients whose roots include this file
                     ObjectNode notification = responseBuilder.createNotification("selection_changed", params);
                     String message = objectMapper.writeValueAsString(notification);
-                    broadcast(message);
+                    broadcastToClientsWithRoot(message, absolutePath);
 
                     LOGGER.log(Level.FINE, "Sent selection_changed event: {0}", message);
                 }
@@ -781,10 +857,19 @@ public class NetBeansMCPHandler {
     }
 
     /**
-     * Sends a raw JSON message to every currently connected client session.
+     * Sends a raw JSON message to every connected client whose declared roots include
+     * filePath. Clients with no resolved roots yet (not requested, not supported, or no
+     * response received) are always sent the message - filtering only ever narrows down
+     * clients that positively reported roots not covering this file.
      */
-    private void broadcast(String message) {
-        for (Session s : sessions.keySet()) {
+    private void broadcastToClientsWithRoot(String message, String filePath) {
+        for (Map.Entry<Session, ClientInfo> entry : sessions.entrySet()) {
+            Session s = entry.getKey();
+            List<String> roots = entry.getValue().roots;
+            boolean shouldSend = roots.isEmpty() || NbUtils.isPathWithinRoots(filePath, roots);
+            if (!shouldSend) {
+                continue;
+            }
             try {
                 if (s.isOpen()) {
                     s.getRemote().sendString(message);

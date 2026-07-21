@@ -4,6 +4,45 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-07-21
+
+### Added
+- **Per-client context scoping via MCP `roots/list`** — after `initialize`, the server now sends
+  a server-initiated `roots/list` request to any client that declared `capabilities.roots`
+  (Claude Code CLI does), resolves the returned workspace root folder(s), and stores them per
+  session. `selection_changed` notifications are now only broadcast to clients whose declared
+  roots include the changed file — a client running in project X no longer gets notified about
+  selection changes in an unrelated project Y. Clients that don't support/respond to `roots/list`
+  keep receiving everything as before (safe default, no regression).
+- `MCPResponseBuilder.createRequest(...)` — first server-initiated JSON-RPC request builder;
+  previously the server only ever answered requests or sent notifications.
+- `NbUtils.isPathWithinRoots(...)` — root-membership check reused from the existing
+  `isPathWithinOpenProjects` pattern.
+- Documented `roots/list` (request + response shape) in `mcp-protocol-schema.json` and
+  `mcp-protocol-schema-detailed.json`, which previously only stubbed the `capabilities.roots` flag.
+- Rewrote the tool descriptions returned by `tools/list` to be more specific about scope and
+  behavior for the calling LLM — notably `getDiagnostics` (clarifies that omitting `uri` returns
+  diagnostics for every open file across *all* open projects, not just the caller's) and `openDiff`
+  (no longer describes itself as a "git diff", since it isn't git-based).
+
+### Changed
+- `prompts/list` no longer advertises the `code_review` prompt — it had no backing `prompts/get`
+  implementation, so invoking it would have failed with "Method not found". Left commented out
+  in `NetBeansMCPHandler.handlePromptsList()` in case it's implemented for real later.
+
+### Fixed
+- `NetBeansMCPHandler.handleMessage` crashed with an NPE (silently turned into a bogus JSON-RPC
+  error sent back to the client) whenever it received a message with no `"method"` field — which
+  is exactly what a response to a server-initiated request looks like. Responses without a
+  `method` are now routed to the matching pending request's callback instead.
+
+### Known Issues (remaining)
+- `resources/read` implementation marked as incorrect internally (XXX comment)
+- `getWorkspaceFolders`/`resources/list` are not yet scoped per client (only `selection_changed`
+  is, for now) — those tools don't currently receive the requesting `Session` at all.
+- No `notifications/roots/list_changed` support — roots are requested once after `initialize`
+  and never refreshed if the client's workspace changes later.
+
 ## [1.4.0] - 2026-07-20
 
 ### Added

@@ -4,7 +4,7 @@
   "properties": {
     "uri": {
       "type": "string",
-      "description": "Optional URI of specific file to get diagnostics for"
+      "description": "Optional URI of a specific file to get diagnostics for. If omitted, diagnostics are returned for every currently open file across all open projects."
     }
   },
   "required": []

@@ -143,4 +143,32 @@ public class NbUtils {
             return false; // Deny access on any path resolution errors
         }
     }
+
+    /**
+     * Checks if a file path is within any of the given root directories.
+     * Same prefix-match logic as {@link #isPathWithinOpenProjects(String)}, generalized
+     * to an arbitrary collection of root paths (e.g. a client's declared MCP roots)
+     * instead of the globally open NetBeans projects.
+     *
+     * @param filePath the file path to check
+     * @param rootPaths candidate root directories
+     * @return true if filePath is within (or equal to) one of rootPaths
+     */
+    public static boolean isPathWithinRoots(String filePath, java.util.Collection<String> rootPaths) {
+        try {
+            String targetPath = new File(filePath).getCanonicalFile().getAbsolutePath();
+
+            for (String root : rootPaths) {
+                String rootPath = new File(root).getCanonicalFile().getAbsolutePath();
+                if (targetPath.startsWith(rootPath + File.separator) || targetPath.equals(rootPath)) {
+                    return true;
+                }
+            }
+
+            return false;
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Error validating file path against roots: " + filePath, e);
+            return false;
+        }
+    }
 }

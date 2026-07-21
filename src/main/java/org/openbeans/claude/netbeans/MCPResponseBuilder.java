@@ -120,8 +120,28 @@ public class MCPResponseBuilder {
     }
     
     /**
+     * Creates a server-initiated request (has both "method" and a server-picked "id",
+     * expecting a matching response back from the client).
+     *
+     * @param id The server-generated request ID
+     * @param method The request method name (e.g. "roots/list")
+     * @param params Optional request parameters
+     * @return ObjectNode containing the request
+     */
+    public ObjectNode createRequest(int id, String method, ObjectNode params) {
+        ObjectNode request = objectMapper.createObjectNode();
+        request.put("jsonrpc", "2.0");
+        request.put("id", id);
+        request.put("method", method);
+        if (params != null) {
+            request.set("params", params);
+        }
+        return request;
+    }
+
+    /**
      * Creates a successful response with id.
-     * 
+     *
      * @param id The request ID
      * @param result The result object
      * @return ObjectNode containing the response

@@ -9,6 +9,7 @@ An **Apache NetBeans** IDE plugin (NBM module) that connects the [Claude Code](h
 - **Real-time selection events** — notifies Claude Code when the editor selection changes
 - **Auto-start** — starts the WebSocket server when NetBeans launches; no manual setup required
 - **Multi-client** — supports more than one simultaneously connected Claude Code session
+- **Per-client context scoping** — each connected client only receives selection-change events for files inside its own workspace root(s), resolved via MCP `roots/list`
 - **Status panel** — a dockable window (Window → Claude Code Status Panel) showing server state, port, PID, lock file validity, and connected client count, with a Restart Server button
 
 ## Requirements
@@ -30,7 +31,7 @@ cd claude-code-netbeans
 mvn clean package -DskipTests
 ```
 
-The plugin is built at `target/nbm/claude-code-netbeans-1.4.0.nbm`.
+The plugin is built at `target/nbm/claude-code-netbeans-1.5.0.nbm`.
 
 > **Note:** The first build requires internet access to download `nbm-maven-plugin` from the NetBeans OSU repository.
 

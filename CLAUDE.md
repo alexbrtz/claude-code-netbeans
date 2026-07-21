@@ -121,8 +121,8 @@ claude-code-netbeans/
 ### `resources/read` incompleto
 Comentario `XXX: This is probably doing the wrong thing` en `handleResourcesRead` de `NetBeansMCPHandler.java`. `getProjectInfo` es un stub — devuelve solo path/nombre, no enumera ni lee archivos reales. Sigue pendiente.
 
-### Contexto no está aislado por cliente (multi-cliente ya soportado, pero sin scoping)
-Desde que se agregó soporte multi-cliente, varios clientes pueden estar conectados a la vez (cada uno correctamente enrutado), pero **todos ven el mismo contexto** — `selection_changed` se hace broadcast a todos, y no hay forma de saber a qué carpeta/proyecto pertenece cada cliente. Plan (ver CHANGELOG "Known Issues"): pedir `roots/list` a cada cliente después de `initialize` (ya declaran `capabilities.roots` en el handshake de Claude Code CLI) y usar esa raíz para filtrar qué se le manda/devuelve a cada uno. Sin implementar todavía.
+### Contexto parcialmente aislado por cliente (falta scoping en las tools "pull")
+Desde 1.5.0, `selection_changed` ya se filtra por cliente: al `initialize`, el servidor le pide `roots/list` a cada cliente que declara `capabilities.roots` (Claude Code CLI lo hace) y solo le hace broadcast del evento si el archivo cae dentro de sus roots (`NetBeansMCPHandler.broadcastToClientsWithRoot`). Lo que sigue sin aislar: las tools que el cliente pide explícitamente sin filtro — `getWorkspaceFolders`, `getOpenEditors`, y `getDiagnostics` sin `uri` — devuelven todo el estado del IDE (todos los proyectos/tabs abiertos), sin importar la raíz de quien pregunta, porque esas tools ni siquiera reciben la `Session` hoy. Ver CHANGELOG "Known Issues" de 1.5.0.
 
 ### Build con JDK muy nuevo rompe el registro de anotaciones
 Si se compila con un JDK considerablemente más nuevo que el que usa NetBeans en runtime (confirmado con JDK 26), el procesador de anotaciones de NetBeans (`@ServiceProvider`, `@ActionID`/`@ActionReference`, `@TopComponent.Registration`) no genera nada — ni `layer.xml` ni `META-INF/services/*` — sin ningún error ni warning visible; el build igual reporta `BUILD SUCCESS`, pero los ítems de menú y el panel de status simplemente no aparecen al instalar el `.nbm`. Mitigación: compilar con **JDK 17** (ver README, sección de build). No se investigó la causa raíz exacta (compatibilidad del procesador viejo con el nuevo compilador), solo se confirmó el workaround.
@@ -138,7 +138,7 @@ Si se compila con un JDK considerablemente más nuevo que el que usa NetBeans en
 mvn clean package -DskipTests
 
 # Output
-target/nbm/claude-code-netbeans-1.4.0.nbm
+target/nbm/claude-code-netbeans-1.5.0.nbm
 ```
 
 ### Requisito de build — JDK 17

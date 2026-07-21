@@ -16,7 +16,8 @@
       "properties": {
         "method": {
           "type": "string",
-          "enum": ["initialize", "tools/list", "tools/call"]
+          "enum": ["initialize", "tools/list", "tools/call", "roots/list"],
+          "description": "roots/list is server-initiated: NetBeans sends this request to the client after initialize (if the client declared capabilities.roots) to learn the client's workspace root folder(s)."
         },
         "id": {
           "type": "integer"
@@ -50,6 +51,11 @@
                 "name": {"type": "string"},
                 "arguments": {"type": "object"}
               }
+            },
+            {
+              "title": "Roots/List Params",
+              "type": "object",
+              "description": "No params - the server requests all of the client's declared workspace roots."
             }
           ]
         }
@@ -107,6 +113,23 @@
                         "properties": {
                           "type": {"type": "string"},
                           "text": {"type": "string"}
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "title": "Roots/List Result",
+                  "description": "Sent by the client in response to a server-initiated roots/list request.",
+                  "type": "object",
+                  "properties": {
+                    "roots": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "uri": {"type": "string", "description": "file:// URI of the workspace root"},
+                          "name": {"type": "string"}
                         }
                       }
                     }
